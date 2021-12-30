@@ -23,7 +23,7 @@ jobs:
   install-tparse:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-go@v2.1.4
+      - uses: actions/setup-go@v2.1.5
         with:
           go-version: 1.17
       - name: Display go version
@@ -31,7 +31,7 @@ jobs:
       - name: install tparse
         run: |
           export GO111MODULE="on" && go get github.com/mfridman/tparse@v0.8.3
-      - uses: actions/cache@v2.1.6
+      - uses: actions/cache@v2.1.7
         with:
           path: ~/go/bin
           key: ${{ runner.os }}-go-tparse-binary
@@ -76,7 +76,7 @@ jobs:
         with:
           # CodeCov requires fetch-depth > 1
           fetch-depth: 2
-      - uses: actions/setup-go@v2.1.4
+      - uses: actions/setup-go@v2.1.5
         with:
           go-version: 1.17
       - uses: technote-space/get-diff-action@v5
@@ -161,7 +161,7 @@ jobs:
         part: ["00", "01", "02", "03"]
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/setup-go@v2.1.4
+      - uses: actions/setup-go@v2.1.5
         with:
           go-version: 1.17
       - uses: technote-space/get-diff-action@v5

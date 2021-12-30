@@ -38,7 +38,7 @@ func (k msgServer) WriteScope(
 	msg.ConvertOptionalFields()
 
 	existing, _ := k.GetScope(ctx, msg.Scope.ScopeId)
-	if err := k.ValidateScopeUpdate(ctx, existing, msg.Scope, msg.Signers); err != nil {
+	if err := k.ValidateScopeUpdate(ctx, existing, msg.Scope, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -63,7 +63,7 @@ func (k msgServer) DeleteScope(
 		return nil, fmt.Errorf("scope not found with id %s", msg.ScopeId)
 	}
 
-	if err := k.ValidateScopeRemove(ctx, existing, msg.Signers); err != nil {
+	if err := k.ValidateScopeRemove(ctx, existing, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -85,7 +85,7 @@ func (k msgServer) AddScopeDataAccess(
 		return nil, fmt.Errorf("scope not found with id %s", msg.ScopeId)
 	}
 
-	if err := k.ValidateScopeAddDataAccess(ctx, msg.DataAccess, existing, msg.Signers); err != nil {
+	if err := k.ValidateScopeAddDataAccess(ctx, msg.DataAccess, existing, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -109,7 +109,7 @@ func (k msgServer) DeleteScopeDataAccess(
 		return nil, fmt.Errorf("scope not found with id %s", msg.ScopeId)
 	}
 
-	if err := k.ValidateScopeDeleteDataAccess(ctx, msg.DataAccess, existing, msg.Signers); err != nil {
+	if err := k.ValidateScopeDeleteDataAccess(ctx, msg.DataAccess, existing, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -143,7 +143,7 @@ func (k msgServer) AddScopeOwner(
 		return nil, addErr
 	}
 
-	if err := k.ValidateScopeUpdateOwners(ctx, existing, proposed, msg.Signers); err != nil {
+	if err := k.ValidateScopeUpdateOwners(ctx, existing, proposed, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -175,7 +175,7 @@ func (k msgServer) DeleteScopeOwner(
 		return nil, rmErr
 	}
 
-	if err := k.ValidateScopeUpdateOwners(ctx, existing, proposed, msg.Signers); err != nil {
+	if err := k.ValidateScopeUpdateOwners(ctx, existing, proposed, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -201,7 +201,7 @@ func (k msgServer) WriteSession(
 		existing = &e
 		existingAudit = existing.Audit
 	}
-	if err := k.ValidateSessionUpdate(ctx, existing, &msg.Session, msg.Signers); err != nil {
+	if err := k.ValidateSessionUpdate(ctx, existing, &msg.Session, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -234,11 +234,17 @@ func (k msgServer) WriteRecord(
 	if e, found := k.GetRecord(ctx, recordID); found {
 		existing = &e
 	}
-	if err := k.ValidateRecordUpdate(ctx, existing, &msg.Record, msg.Signers, msg.Parties); err != nil {
+	if err := k.ValidateRecordUpdate(ctx, existing, &msg.Record, msg.Signers, msg.Parties, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
 	k.SetRecord(ctx, msg.Record)
+
+	// Remove the old session if it doesn't have any records in it anymore.
+	// Note that the RemoveSession does the record checking part.
+	if existing != nil && !existing.SessionId.Equals(msg.Record.SessionId) {
+		k.RemoveSession(ctx, existing.SessionId)
+	}
 
 	k.EmitEvent(ctx, types.NewEventTxCompleted(types.TxEndpoint_WriteRecord, msg.GetSigners()))
 	return types.NewMsgWriteRecordResponse(recordID), nil
@@ -252,7 +258,7 @@ func (k msgServer) DeleteRecord(
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
 	existing, _ := k.GetRecord(ctx, msg.RecordId)
-	if err := k.ValidateRecordRemove(ctx, existing, msg.RecordId, msg.Signers); err != nil {
+	if err := k.ValidateRecordRemove(ctx, existing, msg.RecordId, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -275,7 +281,7 @@ func (k msgServer) WriteScopeSpecification(
 	var existing *types.ScopeSpecification = nil
 	if e, found := k.GetScopeSpecification(ctx, msg.Specification.SpecificationId); found {
 		existing = &e
-		if err := k.ValidateAllOwnersAreSigners(existing.OwnerAddresses, msg.Signers); err != nil {
+		if err := k.ValidateAllOwnersAreSignersWithAuthz(ctx, existing.OwnerAddresses, msg.Signers, msg.MsgTypeURL()); err != nil {
 			return nil, err
 		}
 	}
@@ -300,7 +306,7 @@ func (k msgServer) DeleteScopeSpecification(
 	if !found {
 		return nil, fmt.Errorf("scope specification not found with id %s", msg.SpecificationId)
 	}
-	if err := k.ValidateAllOwnersAreSigners(existing.OwnerAddresses, msg.Signers); err != nil {
+	if err := k.ValidateAllOwnersAreSignersWithAuthz(ctx, existing.OwnerAddresses, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -325,7 +331,7 @@ func (k msgServer) WriteContractSpecification(
 	var existing *types.ContractSpecification = nil
 	if e, found := k.GetContractSpecification(ctx, msg.Specification.SpecificationId); found {
 		existing = &e
-		if err := k.ValidateAllOwnersAreSigners(existing.OwnerAddresses, msg.Signers); err != nil {
+		if err := k.ValidateAllOwnersAreSignersWithAuthz(ctx, existing.OwnerAddresses, msg.Signers, msg.MsgTypeURL()); err != nil {
 			return nil, err
 		}
 	}
@@ -350,7 +356,7 @@ func (k msgServer) DeleteContractSpecification(
 	if !found {
 		return nil, fmt.Errorf("contract specification not found with id %s", msg.SpecificationId)
 	}
-	if err := k.ValidateAllOwnersAreSigners(existing.OwnerAddresses, msg.Signers); err != nil {
+	if err := k.ValidateAllOwnersAreSignersWithAuthz(ctx, existing.OwnerAddresses, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -402,7 +408,7 @@ func (k msgServer) AddContractSpecToScopeSpec(
 	if !found {
 		return nil, fmt.Errorf("scope specification not found with id %s", msg.ScopeSpecificationId)
 	}
-	if err := k.ValidateAllOwnersAreSigners(scopeSpec.OwnerAddresses, msg.Signers); err != nil {
+	if err := k.ValidateAllOwnersAreSignersWithAuthz(ctx, scopeSpec.OwnerAddresses, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -434,7 +440,7 @@ func (k msgServer) DeleteContractSpecFromScopeSpec(
 	if !found {
 		return nil, fmt.Errorf("scope specification not found with id %s", msg.ScopeSpecificationId)
 	}
-	if err := k.ValidateAllOwnersAreSigners(scopeSpec.OwnerAddresses, msg.Signers); err != nil {
+	if err := k.ValidateAllOwnersAreSignersWithAuthz(ctx, scopeSpec.OwnerAddresses, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -479,7 +485,7 @@ func (k msgServer) WriteRecordSpecification(
 		return nil, fmt.Errorf("contract specification not found with id %s (uuid %s) required for adding or updating record specification with id %s",
 			contractSpecID, contractSpecUUID, msg.Specification.SpecificationId)
 	}
-	if err := k.ValidateAllOwnersAreSigners(contractSpec.OwnerAddresses, msg.Signers); err != nil {
+	if err := k.ValidateAllOwnersAreSignersWithAuthz(ctx, contractSpec.OwnerAddresses, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -517,7 +523,7 @@ func (k msgServer) DeleteRecordSpecification(
 		return nil, fmt.Errorf("contract specification not found with id %s required for deleting record specification with id %s",
 			contractSpecID, msg.SpecificationId)
 	}
-	if err := k.ValidateAllOwnersAreSigners(contractSpec.OwnerAddresses, msg.Signers); err != nil {
+	if err := k.ValidateAllOwnersAreSignersWithAuthz(ctx, contractSpec.OwnerAddresses, msg.Signers, msg.MsgTypeURL()); err != nil {
 		return nil, err
 	}
 
@@ -544,7 +550,7 @@ func (k msgServer) WriteP8EContractSpec(
 	var existing *types.ContractSpecification = nil
 	if e, found := k.GetContractSpecification(ctx, proposed.SpecificationId); found {
 		existing = &e
-		if err := k.ValidateAllOwnersAreSigners(existing.OwnerAddresses, msg.Signers); err != nil {
+		if err := k.ValidateAllOwnersAreSignersWithAuthz(ctx, existing.OwnerAddresses, msg.Signers, msg.MsgTypeURL()); err != nil {
 			return nil, err
 		}
 	}
