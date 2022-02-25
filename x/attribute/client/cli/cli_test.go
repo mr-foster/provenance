@@ -3,29 +3,37 @@ package cli_test
 import (
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
 	testnet "github.com/cosmos/cosmos-sdk/testutil/network"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/tx"
+	authcli "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	"github.com/provenance-io/provenance/testutil"
 	"github.com/provenance-io/provenance/x/attribute/client/cli"
 	attributetypes "github.com/provenance-io/provenance/x/attribute/types"
+	mdtypes "github.com/provenance-io/provenance/x/metadata/types"
 	namecli "github.com/provenance-io/provenance/x/name/client/cli"
 	nametypes "github.com/provenance-io/provenance/x/name/types"
 )
@@ -36,21 +44,24 @@ type IntegrationTestSuite struct {
 	cfg     testnet.Config
 	testnet *testnet.Network
 
+	keyring    keyring.Keyring
+	keyringDir string
+	accounts   []keyring.Info
+
 	account1Addr sdk.AccAddress
-	account1Key  *secp256k1.PrivKey
 	account1Str  string
 
 	account2Addr sdk.AccAddress
-	account2Key  *secp256k1.PrivKey
 	account2Str  string
 
 	account3Addr sdk.AccAddress
-	account3Key  *secp256k1.PrivKey
 	account3Str  string
 
 	account4Addr sdk.AccAddress
-	account4Key  *secp256k1.PrivKey
 	account4Str  string
+
+	account5Addr sdk.AccAddress
+	account5Str  string
 
 	accAttrCount int
 }
@@ -60,29 +71,23 @@ func TestIntegrationTestSuite(t *testing.T) {
 }
 
 func (s *IntegrationTestSuite) SetupSuite() {
-	s.account1Key = secp256k1.GenPrivKeyFromSecret([]byte("acc1"))
-	addr1, err1 := sdk.AccAddressFromHex(s.account1Key.PubKey().Address().String())
-	s.Require().NoError(err1)
-	s.account1Addr = addr1
-	s.account1Str = addr1.String()
+	var err error
+	s.GenerateAccountsWithKeyrings(5)
 
-	s.account2Key = secp256k1.GenPrivKeyFromSecret([]byte("acc2"))
-	addr2, err2 := sdk.AccAddressFromHex(s.account2Key.PubKey().Address().String())
-	s.Require().NoError(err2)
-	s.account2Addr = addr2
-	s.account2Str = addr2.String()
+	s.account1Addr = s.accounts[0].GetAddress()
+	s.account1Str = s.account1Addr.String()
 
-	s.account3Key = secp256k1.GenPrivKeyFromSecret([]byte("acc3"))
-	addr3, err3 := sdk.AccAddressFromHex(s.account3Key.PubKey().Address().String())
-	s.Require().NoError(err3)
-	s.account3Addr = addr3
-	s.account3Str = addr3.String()
+	s.account2Addr = s.accounts[1].GetAddress()
+	s.account2Str = s.account2Addr.String()
 
-	s.account4Key = secp256k1.GenPrivKeyFromSecret([]byte("acc4"))
-	addr4, err4 := sdk.AccAddressFromHex(s.account4Key.PubKey().Address().String())
-	s.Require().NoError(err4)
-	s.account4Addr = addr4
-	s.account4Str = addr4.String()
+	s.account3Addr = s.accounts[2].GetAddress()
+	s.account3Str = s.account3Addr.String()
+
+	s.account4Addr = s.accounts[3].GetAddress()
+	s.account4Str = s.account4Addr.String()
+
+	s.account5Addr = s.accounts[4].GetAddress()
+	s.account5Str = s.account5Addr.String()
 
 	s.accAttrCount = 500
 
@@ -97,9 +102,11 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	var nameData nametypes.GenesisState
 	nameData.Bindings = append(nameData.Bindings, nametypes.NewNameRecord("attribute", s.account1Addr, false))
 	nameData.Bindings = append(nameData.Bindings, nametypes.NewNameRecord("example.attribute", s.account1Addr, false))
+	nameData.Bindings = append(nameData.Bindings, nametypes.NewNameRecord("pb", s.account5Addr, false))
+	nameData.Bindings = append(nameData.Bindings, nametypes.NewNameRecord("pb1", s.account1Addr, false))
 	nameData.Params.AllowUnrestrictedNames = false
 	nameData.Params.MaxNameLevels = 3
-	nameData.Params.MinSegmentLength = 3
+	nameData.Params.MinSegmentLength = 2
 	nameData.Params.MaxSegmentLength = 12
 	nameDataBz, err := cfg.Codec.MarshalJSON(&nameData)
 	s.Require().NoError(err)
@@ -107,13 +114,20 @@ func (s *IntegrationTestSuite) SetupSuite() {
 
 	var authData authtypes.GenesisState
 	s.Require().NoError(cfg.Codec.UnmarshalJSON(genesisState[authtypes.ModuleName], &authData))
-	genAccount, err := codectypes.NewAnyWithValue(&authtypes.BaseAccount{
+	genAccount1, err := codectypes.NewAnyWithValue(&authtypes.BaseAccount{
 		Address:       s.account1Str,
 		AccountNumber: 1,
 		Sequence:      0,
 	})
 	s.Require().NoError(err)
-	authData.Accounts = append(authData.Accounts, genAccount)
+	genAccount5, err := codectypes.NewAnyWithValue(&authtypes.BaseAccount{
+		Address:       s.account5Str,
+		AccountNumber: 1,
+		Sequence:      0,
+	})
+	s.Require().NoError(err)
+	authData.Accounts = append(authData.Accounts, genAccount1)
+	authData.Accounts = append(authData.Accounts, genAccount5)
 	authDataBz, err := cfg.Codec.MarshalJSON(&authData)
 	s.Require().NoError(err)
 	genesisState[authtypes.ModuleName] = authDataBz
@@ -123,9 +137,11 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	)
 	var bankData banktypes.GenesisState
 	s.Require().NoError(cfg.Codec.UnmarshalJSON(genesisState[banktypes.ModuleName], &bankData))
-	genBank := banktypes.Balance{Address: s.account1Str, Coins: balances.Sort()}
+	genBank1 := banktypes.Balance{Address: s.account1Str, Coins: balances.Sort()}
+	genBank5 := banktypes.Balance{Address: s.account5Str, Coins: balances.Sort()}
 	s.Require().NoError(err)
-	bankData.Balances = append(bankData.Balances, genBank)
+	bankData.Balances = append(bankData.Balances, genBank1)
+	bankData.Balances = append(bankData.Balances, genBank5)
 	bankDataBz, err := cfg.Codec.MarshalJSON(&bankData)
 	s.Require().NoError(err)
 	genesisState[banktypes.ModuleName] = bankDataBz
@@ -177,6 +193,20 @@ func (s *IntegrationTestSuite) TearDownSuite() {
 	s.testnet.WaitForNextBlock()
 	s.T().Log("tearing down integration test suite")
 	s.testnet.Cleanup()
+}
+
+func (s *IntegrationTestSuite) GenerateAccountsWithKeyrings(number int) {
+	path := hd.CreateHDPath(118, 0, 0).String()
+	s.keyringDir = s.T().TempDir()
+	kr, err := keyring.New(s.T().Name(), "test", s.keyringDir, nil)
+	s.Require().NoError(err)
+	s.keyring = kr
+	for i := 0; i < number; i++ {
+		keyId := fmt.Sprintf("test_key%v", i)
+		info, _, err := kr.NewMnemonic(keyId, keyring.English, path, keyring.DefaultBIP39Passphrase, hd.Secp256k1)
+		s.Require().NoError(err)
+		s.accounts = append(s.accounts, info)
+	}
 }
 
 // toWritten converts an integer to a written string version.
@@ -1120,4 +1150,252 @@ func (s *IntegrationTestSuite) TestPaginationWithPageKey() {
 			require.NotEqual(t, results[i-1], results[i], "no two attributes should be equal here")
 		}
 	})
+}
+
+type scopeAndAttrAnyMsgs struct {
+	writeScopeSpecMsg    *mdtypes.MsgWriteScopeSpecificationRequest
+	writeScopeSpecMsgAny *codectypes.Any
+	bindNameMsg          *nametypes.MsgBindNameRequest
+	bindNameMsgAny       *codectypes.Any
+	writeScopeMsg        *mdtypes.MsgWriteScopeRequest
+	writeScopeMsgAny     *codectypes.Any
+	addAttributeMsg      *attributetypes.MsgAddAttributeRequest
+	addAttributeMsgAny   *codectypes.Any
+}
+
+func (s *IntegrationTestSuite) makeScopeAndAttrMsgs() *scopeAndAttrAnyMsgs {
+	rv := &scopeAndAttrAnyMsgs{
+		writeScopeSpecMsg: &mdtypes.MsgWriteScopeSpecificationRequest{
+			Specification: mdtypes.ScopeSpecification{
+				SpecificationId: mdtypes.ScopeSpecMetadataAddress(uuid.New()),
+				Description:     nil,
+				OwnerAddresses:  []string{s.account1Str},
+				PartiesInvolved: []mdtypes.PartyType{mdtypes.PartyType_PARTY_TYPE_OWNER},
+				ContractSpecIds: []mdtypes.MetadataAddress{},
+			},
+			Signers:  []string{s.account1Str},
+			SpecUuid: "",
+		},
+		bindNameMsg: &nametypes.MsgBindNameRequest{
+			Parent: nametypes.NameRecord{
+				Name:       "pb",
+				Address:    s.account5Str,
+				Restricted: false,
+			},
+			Record: nametypes.NameRecord{
+				Name:       "jake",
+				Address:    s.account5Str,
+				Restricted: false,
+			},
+		},
+	}
+	rv.writeScopeMsg = &mdtypes.MsgWriteScopeRequest{
+		Scope: mdtypes.Scope{
+			ScopeId:           mdtypes.ScopeMetadataAddress(uuid.New()),
+			SpecificationId:   rv.writeScopeSpecMsg.Specification.SpecificationId,
+			Owners:            []mdtypes.Party{{s.account5Str, mdtypes.PartyType_PARTY_TYPE_OWNER}},
+			DataAccess:        []string{s.account4Str, s.account5Str},
+			ValueOwnerAddress: s.account5Str,
+		},
+		Signers:   []string{s.account5Str},
+		ScopeUuid: "",
+		SpecUuid:  "",
+	}
+	rv.addAttributeMsg = &attributetypes.MsgAddAttributeRequest{
+		Name:          rv.bindNameMsg.Record.Name + "." + rv.bindNameMsg.Parent.Name,
+		Value:         []byte("test"),
+		AttributeType: attributetypes.AttributeType_String,
+		Account:       rv.writeScopeMsg.Scope.ScopeId.String(),
+		Owner:         s.account5Str,
+	}
+	return rv
+}
+
+func (a *scopeAndAttrAnyMsgs) populateAnyFields() error {
+	var err error
+	a.writeScopeSpecMsgAny, err = codectypes.NewAnyWithValue(a.writeScopeSpecMsg)
+	if err != nil {
+		return fmt.Errorf("Could not wrap %s as Any: %w", "MsgWriteScopeSpecificationRequest", err)
+	}
+	a.bindNameMsgAny, err = codectypes.NewAnyWithValue(a.bindNameMsg)
+	if err != nil {
+		return fmt.Errorf("Could not wrap %s as Any: %w", "MsgBindNameRequest", err)
+	}
+	a.writeScopeMsgAny, err = codectypes.NewAnyWithValue(a.writeScopeMsg)
+	if err != nil {
+		return fmt.Errorf("Could not wrap %s as Any: %w", "MsgWriteScopeRequest", err)
+	}
+	a.addAttributeMsgAny, err = codectypes.NewAnyWithValue(a.addAttributeMsg)
+	if err != nil {
+		return fmt.Errorf("Could not wrap %s as Any: %w", "MsgAddAttributeRequest", err)
+	}
+	return nil
+}
+
+func (s *IntegrationTestSuite) MakeTx(msgs ...*codectypes.Any) tx.Tx {
+	return tx.Tx{
+		Body: &tx.TxBody{
+			Messages:                    msgs,
+			Memo:                        "",
+			TimeoutHeight:               0,
+			ExtensionOptions:            []*codectypes.Any{},
+			NonCriticalExtensionOptions: []*codectypes.Any{},
+		},
+		AuthInfo: &tx.AuthInfo{
+			SignerInfos: []*tx.SignerInfo{},
+			Fee: &tx.Fee{
+				Amount:   sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10))),
+				GasLimit: 200000,
+				Payer:    "",
+				Granter:  "",
+			},
+		},
+		Signatures: nil,
+	}
+}
+
+func (s *IntegrationTestSuite) TestScopeAndAttributeTx() {
+	ctx := s.testnet.Validators[0].ClientCtx.WithKeyringDir(s.keyringDir).WithKeyring(s.keyring)
+	dir := s.T().TempDir()
+
+	msgs := s.makeScopeAndAttrMsgs()
+	err := msgs.populateAnyFields()
+	s.Require().NoError(err, "making messages")
+
+	scopeSpecTx := s.MakeTx(msgs.writeScopeSpecMsgAny)
+	_, err = s.SendAndCheckTx(ctx, scopeSpecTx, s.account1Str, "1-scopeSpecTx", dir)
+	s.Require().NoError(err)
+
+	nameTx := s.MakeTx(msgs.bindNameMsgAny)
+	_, err = s.SendAndCheckTx(ctx, nameTx, s.account5Str, "2-nameTx", dir)
+	s.Require().NoError(err)
+
+	scopeAndAttrTx := s.MakeTx(msgs.writeScopeMsgAny, msgs.addAttributeMsgAny)
+	_, err = s.SendAndCheckTx(ctx, scopeAndAttrTx, s.account5Str, "3-scopeAndAttrTx", dir)
+	s.Require().NoError(err)
+	// Pro tip: SendAndCheck saves several files while running.
+	// To view them, put a break point on the above line, then debug this test.
+	// Once it hits that breakpoint, get the dir value and copy all the files
+	// somewhere more permanent.
+}
+
+func (s *IntegrationTestSuite) TestPb1ScopeAndAttributeTx() {
+	ctx := s.testnet.Validators[0].ClientCtx.WithKeyringDir(s.keyringDir).WithKeyring(s.keyring)
+	dir := s.T().TempDir()
+
+	msgs := s.makeScopeAndAttrMsgs()
+	msgs.bindNameMsg.Parent.Name = "pb1"
+	msgs.bindNameMsg.Parent.Address = s.account1Str
+	msgs.addAttributeMsg.Name = "jake.pb1"
+	err := msgs.populateAnyFields()
+	s.Require().NoError(err, "making messages")
+
+	scopeSpecTx := s.MakeTx(msgs.writeScopeSpecMsgAny)
+	_, err = s.SendAndCheckTx(ctx, scopeSpecTx, s.account1Str, "1-scopeSpecTx", dir)
+	s.Require().NoError(err)
+
+	nameTx := s.MakeTx(msgs.bindNameMsgAny)
+	_, err = s.SendAndCheckTx(ctx, nameTx, s.account1Str, "2-nameTx", dir)
+	s.Require().NoError(err)
+
+	scopeAndAttrTx := s.MakeTx(msgs.writeScopeMsgAny, msgs.addAttributeMsgAny)
+	_, err = s.SendAndCheckTx(ctx, scopeAndAttrTx, s.account5Str, "3-scopeAndAttrTx", dir)
+	s.Require().NoError(err)
+	// Pro tip: SendAndCheck saves several files while running.
+	// To view them, put a break point on the above line, then debug this test.
+	// Once it hits that breakpoint, get the dir value and copy all the files
+	// somewhere more permanent.
+}
+
+func (s *IntegrationTestSuite) SendAndCheckTx(ctx client.Context, toSend tx.Tx, signerAddr, txName, dir string) (*sdk.TxResponse, error) {
+	fc := 0
+	txJSON, err := s.testnet.Config.TxConfig.TxJSONEncoder()(&toSend)
+	if err != nil {
+		return nil, fmt.Errorf("could not encode %q tx as JSON: %w", txName, err)
+	}
+	s.T().Logf("%q using directory %s", txName, dir)
+	fc++
+	unsignedFile := filepath.Join(dir, fmt.Sprintf("%s-%d-unsigned.json", txName, fc))
+	err = os.WriteFile(unsignedFile, txJSON, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("could not write %q unsigned file: %w", txName, err)
+	}
+	sbArgs := []string{unsignedFile,
+		fmt.Sprintf("--%s=%s", flags.FlagChainID, ctx.ChainID),
+		fmt.Sprintf("--%s=%s", flags.FlagFrom, signerAddr),
+	}
+	signedJSON, err := clitestutil.ExecTestCLICmd(ctx, authcli.GetSignCommand(), sbArgs)
+	if err != nil {
+		return nil, fmt.Errorf("could not sign %q tx %q: %w", txName, sbArgs, err)
+	}
+	signedJSONBz := signedJSON.Bytes()
+	s.T().Logf("%q tx input:\n%s\n", txName, signedJSONBz)
+	fc++
+	signedFile := filepath.Join(dir, fmt.Sprintf("%s-%d-signed.json", txName, fc))
+	err = os.WriteFile(signedFile, signedJSONBz, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("could not write %q signed file: %w", txName, err)
+	}
+	bArgs := []string{signedFile,
+		"-o", "json",
+	}
+	bOut, err := clitestutil.ExecTestCLICmd(ctx, authcli.GetBroadcastCommand(), bArgs)
+	if err != nil {
+		return nil, fmt.Errorf("could not broadcast %q tx %q: %w", txName, bArgs, err)
+	}
+	bOutBz := bOut.Bytes()
+	s.T().Logf("%q broadcast output:\n%s\n", txName, bOutBz)
+	fc++
+	err = os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s-%d-broadcast-output.json", txName, fc)), bOutBz, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("could not write %q tx output file: %w", txName, err)
+	}
+
+	bTxResp := sdk.TxResponse{}
+	err = s.testnet.Config.Codec.UnmarshalJSON(bOutBz, &bTxResp)
+	if err != nil {
+		return nil, fmt.Errorf("could not unmarshal broadcast %q tx response: %w", txName, err)
+	}
+	if uint32(0) != bTxResp.Code {
+		return nil, fmt.Errorf("broadcast %q tx returned a code %d (expected 0)", txName, bTxResp.Code)
+	}
+
+	err = s.WaitForBlocks(txName, 2)
+	if err != nil {
+		return nil, err
+	}
+
+	qTxArgs := []string{"--type=hash", bTxResp.TxHash, "-o", "json"}
+	qTxOut, err := clitestutil.ExecTestCLICmd(ctx, authcli.QueryTxCmd(), qTxArgs)
+	if err != nil {
+		return nil, fmt.Errorf("could not query %q tx %q: %w", txName, qTxArgs, err)
+	}
+	qTxOutBz := qTxOut.Bytes()
+	s.T().Logf("%q query result:\n%s\n", txName, qTxOutBz)
+	fc++
+	err = os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s-%d-tx-response.json", txName, fc)), qTxOutBz, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("could not write %q tx response file: %w", txName, err)
+	}
+
+	qTxResp := sdk.TxResponse{}
+	err = s.testnet.Config.Codec.UnmarshalJSON(qTxOutBz, &qTxResp)
+	if err != nil {
+		return nil, fmt.Errorf("could not unmarshal query %q tx response: %w", txName, err)
+	}
+	if uint32(0) != qTxResp.Code {
+		return nil, fmt.Errorf("query %q tx returned a code %d (expected 0)", txName, qTxResp.Code)
+	}
+	return &qTxResp, nil
+}
+
+func (s IntegrationTestSuite) WaitForBlocks(txName string, count int) error {
+	for i := 1; i <= count; i++ {
+		s.T().Logf("%q waiting for block %d of %d.", txName, i, count)
+		err := s.testnet.WaitForNextBlock()
+		if err != nil {
+			return fmt.Errorf("could not wait for block %d of %d during %q tx: %w", i, count, txName, err)
+		}
+	}
+	return nil
 }
