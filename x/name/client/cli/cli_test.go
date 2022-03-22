@@ -21,6 +21,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/gov/client/cli"
 
+	"github.com/provenance-io/provenance/internal/antewrapper"
 	"github.com/provenance-io/provenance/testutil"
 	namecli "github.com/provenance-io/provenance/x/name/client/cli"
 	nametypes "github.com/provenance-io/provenance/x/name/types"
@@ -79,6 +80,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 
 	cfg.GenesisState = genesisState
 
+	cfg.ChainID = antewrapper.SimAppChainID
 	s.cfg = cfg
 
 	s.testnet = testnet.New(s.T(), cfg)

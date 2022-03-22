@@ -25,12 +25,12 @@ import (
 
 // Simulation operation weights constants
 const (
-	OpWeightMsgAddMarker    = "op_weight_msg_add_marker"
-	OpWeightMsgDeleteMarker = "op_weight_msg_delete_marker"
+	//nolint:gosec // not credentials
+	OpWeightMsgAddMarker = "op_weight_msg_add_marker"
+	//nolint:gosec // not credentials
 	OpWeightMsgChangeStatus = "op_weight_msg_change_status"
-	OpWeightMsgAddAccess    = "op_weight_msg_add_access"
-	OpWeightMsgMintMarker   = "op_weight_msg_mint_marker"
-	OpWeightMsgBurnMarker   = "op_weight_msg_burn_marker"
+	//nolint:gosec // not credentials
+	OpWeightMsgAddAccess = "op_weight_msg_add_access"
 )
 
 /*
@@ -206,11 +206,11 @@ func Dispatch(
 	if sdk.MsgTypeURL(msg) == "/provenance.marker.v1.MsgAddMarkerRequest" && ak.GetAccount(ctx, account.GetAddress()) != nil {
 		err = simapp.FundAccount(bk, ctx, account.GetAddress(), sdk.NewCoins(sdk.Coin{
 			Denom:  "stake",
-			Amount: sdk.NewInt(100000000000000),
+			Amount: sdk.NewInt(1_000_000_000_000_000),
 		}))
 		fees = fees.Add(sdk.Coin{
 			Denom:  "stake",
-			Amount: sdk.NewInt(100000000000000),
+			Amount: sdk.NewInt(100_000_000_000_000),
 		})
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, fmt.Sprintf("%T", msg), "unable to fund account with additional fee"), nil, err

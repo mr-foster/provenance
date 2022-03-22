@@ -155,7 +155,6 @@ func createAndExportGenesisFile(
 		cmd.Printf("Using testnet defaults\n")
 		minDeposit = 10000000            // 10,000,000
 		downtimeJailDurationStr = "600s" // 10 minutes
-		maxGas = -1
 	} else {
 		cmd.Printf("Using mainnet defaults\n")
 	}
@@ -241,7 +240,7 @@ func createAndExportGenesisFile(
 		moduleName := markertypes.ModuleName
 		var markerGenState markertypes.GenesisState
 		cdc.MustUnmarshalJSON(appGenState[moduleName], &markerGenState)
-		markerGenState.Params.UnrestrictedDenomRegex = `[a-zA-Z][a-zA-Z0-9\-\.]{7,64}`
+		markerGenState.Params.UnrestrictedDenomRegex = `[a-zA-Z][a-zA-Z0-9\-\.]{7,83}`
 		appGenState[moduleName] = cdc.MustMarshalJSON(&markerGenState)
 	}
 

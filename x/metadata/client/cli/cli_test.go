@@ -26,6 +26,7 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
+	"github.com/provenance-io/provenance/internal/antewrapper"
 	"github.com/provenance-io/provenance/testutil"
 	"github.com/provenance-io/provenance/x/metadata/client/cli"
 	metadatatypes "github.com/provenance-io/provenance/x/metadata/types"
@@ -445,6 +446,7 @@ owner: %s`,
 	cfg.GenesisState = genesisState
 
 	s.cfg = cfg
+	cfg.ChainID = antewrapper.SimAppChainID
 	s.testnet = testnet.New(s.T(), cfg)
 
 	_, err = s.testnet.WaitForHeight(1)

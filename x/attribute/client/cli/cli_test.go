@@ -30,6 +30,7 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
+	"github.com/provenance-io/provenance/internal/antewrapper"
 	"github.com/provenance-io/provenance/testutil"
 	"github.com/provenance-io/provenance/x/attribute/client/cli"
 	attributetypes "github.com/provenance-io/provenance/x/attribute/types"
@@ -182,7 +183,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	cfg.GenesisState = genesisState
 
 	s.cfg = cfg
-
+	cfg.ChainID = antewrapper.SimAppChainID
 	s.testnet = testnet.New(s.T(), cfg)
 
 	_, err = s.testnet.WaitForHeight(1)

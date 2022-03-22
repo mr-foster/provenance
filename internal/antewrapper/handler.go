@@ -45,6 +45,7 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		// outermost AnteDecorator. SetUpContext must be called first
 		NewFeeMeterContextDecorator(), // NOTE : fee gas meter also has the functionality of GasTracerContextDecorator in previous versions
 		cosmosante.NewRejectExtensionOptionsDecorator(),
+		NewTxGasLimitDecorator(),
 		cosmosante.NewMempoolFeeDecorator(),
 		// Fee Decorator works to augment NewMempoolFeeDecorator and also check that enough fees are paid
 		NewMsgFeesDecorator(options.BankKeeper, options.AccountKeeper, options.FeegrantKeeper, options.MsgFeesKeeper),

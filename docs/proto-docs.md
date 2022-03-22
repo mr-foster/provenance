@@ -329,6 +329,8 @@
     - [Msg](#provenance.metadata.v1.Msg)
   
 - [provenance/msgfees/v1/msgfees.proto](#provenance/msgfees/v1/msgfees.proto)
+    - [EventMsgFee](#provenance.msgfees.v1.EventMsgFee)
+    - [EventMsgFees](#provenance.msgfees.v1.EventMsgFees)
     - [MsgFee](#provenance.msgfees.v1.MsgFee)
     - [Params](#provenance.msgfees.v1.Params)
   
@@ -5122,6 +5124,38 @@ Msg defines the Metadata Msg service.
 
 
 
+<a name="provenance.msgfees.v1.EventMsgFee"></a>
+
+### EventMsgFee
+EventMsgFee final event property for msg fee on type
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `msg_type` | [string](#string) |  |  |
+| `count` | [string](#string) |  |  |
+| `total` | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="provenance.msgfees.v1.EventMsgFees"></a>
+
+### EventMsgFees
+EventMsgFees event emitted with summary of msg fees
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `msg_fees` | [EventMsgFee](#provenance.msgfees.v1.EventMsgFee) | repeated |  |
+
+
+
+
+
+
 <a name="provenance.msgfees.v1.MsgFee"></a>
 
 ### MsgFee
@@ -5299,7 +5333,7 @@ CalculateTxFeesResponse is the response type for the Query RPC method.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | `additional_fees` | [cosmos.base.v1beta1.Coin](#cosmos.base.v1beta1.Coin) | repeated | additional_fees are the amount of coins to be for addition msg fees |
-| `total_fees` | [cosmos.base.v1beta1.Coin](#cosmos.base.v1beta1.Coin) | repeated | total_fees are the total amount of fees needed for the transactions (msg fees + gas fee) note: the gas fee is calculated with the min gas fee param as a constant |
+| `total_fees` | [cosmos.base.v1beta1.Coin](#cosmos.base.v1beta1.Coin) | repeated | total_fees are the total amount of fees needed for the transactions (msg fees + gas fee) note: the gas fee is calculated with the floor gas price module param. |
 | `estimated_gas` | [uint64](#uint64) |  | estimated_gas is the amount of gas needed for the transaction |
 
 

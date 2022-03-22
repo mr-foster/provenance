@@ -24,9 +24,13 @@ import (
 
 // Simulation operation weights constants
 const (
-	OpWeightMsgAddAttribute            = "op_weight_msg_add_attribute"
-	OpWeightMsgUpdateAttribute         = "op_weight_msg_update_attribute"
-	OpWeightMsgDeleteAttribute         = "op_weight_msg_delete_attribute"
+	//nolint:gosec // not credentials
+	OpWeightMsgAddAttribute = "op_weight_msg_add_attribute"
+	//nolint:gosec // not credentials
+	OpWeightMsgUpdateAttribute = "op_weight_msg_update_attribute"
+	//nolint:gosec // not credentials
+	OpWeightMsgDeleteAttribute = "op_weight_msg_delete_attribute"
+	//nolint:gosec // not credentials
 	OpWeightMsgDeleteDistinctAttribute = "op_weight_msg_delete_distinct_attribute"
 )
 
@@ -102,8 +106,14 @@ func SimulateMsgAddAttribute(k keeper.Keeper, ak authkeeper.AccountKeeperI, bk b
 			return simtypes.NoOpMsg(types.ModuleName, types.TypeMsgAddAttribute, "no name records available to create under"), nil, nil
 		}
 
-		randomRecord := records[r.Intn(len(records))]
-		simAccount, _ := simtypes.FindAccount(accs, mustGetAddress(randomRecord.Address))
+		found := false
+		var simAccount simtypes.Account
+		var randomRecord nametypes.NameRecord
+
+		for !found {
+			randomRecord = records[r.Intn(len(records))]
+			simAccount, found = simtypes.FindAccount(accs, mustGetAddress(randomRecord.Address))
+		}
 
 		t := types.AttributeType(r.Intn(9))
 		msg := types.NewMsgAddAttributeRequest(

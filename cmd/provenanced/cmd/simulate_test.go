@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/provenance-io/provenance/internal/antewrapper"
+
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
@@ -75,7 +77,7 @@ func (s *SimulateTestSuite) SetupTest() {
 	cfg.GenesisState = genesisState
 
 	s.cfg = cfg
-
+	cfg.ChainID = antewrapper.SimAppChainID
 	s.testnet = testnet.New(s.T(), cfg)
 
 	_, err = s.testnet.WaitForHeight(1)
